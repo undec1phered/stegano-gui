@@ -33,7 +33,7 @@ pip install opencv-python
 Then just run:
 
 ```bash
-python3 app.py
+python3 stegano_gui.py
 ```
 
 ---
