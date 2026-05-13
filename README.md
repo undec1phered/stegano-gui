@@ -19,6 +19,9 @@ This app lets you do exactly that. You pick an image, type a message, set a pass
 - **Encrypt** - hide a message inside any image, locked with a passcode
 - **Decrypt** - extract the hidden message from an image using the correct passcode
 - **GUI** - clean tabbed interface, no terminal needed
+- **Hex encoding + 1-bit LSB** — the message is converted to a hex string; each hex nibble bit is stored in the **lowest bit** of a pixel channel. Maximum pixel change: ±1/255, making visual differences effectively imperceptible.
+- **XOR encryption** — messages are encrypted with a password-keyed XOR stream before embedding; the algorithm tag is stored in the image and auto-detected on decryption (including legacy payloads)
+- **Randomised header placement** — the password hash, algorithm tag, and message length are stored at pixel positions chosen by a fixed-seed PRNG rather than at predictable sequential positions, making the header harder to locate
 
 ---
 
@@ -57,21 +60,22 @@ python3 stegano_gui.py
 
 ## How it actually works
 
-The app replaces individual pixel channel values (R, G, B) with the ASCII codes of the message characters. The first few pixels store a password hash and the message length as a header, so the app knows where the message starts and ends and can verify your passcode before showing anything.
-
-The visual difference is effectively invisible to the human eye.
+The app encodes messages through a three-stage pipeline:
+1. **Encrypt** — encrypt the raw message bytes with XOR using a key stream derived from the passcode via PBKDF2-HMAC-SHA256 with a dedicated stream salt (distinct from the password-verification hash below).
+2. **Hex-encode** — convert the encrypted bytes to a lowercase hex string (e.g. `"hi"` → `"6869"`). Each character is a hex digit in `[0-9a-f]`, which maps to a 4-bit nibble (0–15).
+3. **Embed (1-bit LSB)** — each nibble is split into 4 bits, then one bit is written into the **lowest bit** of each pixel channel. The maximum change to any channel value is **±1 out of 255**.
+A 76-character header is stored first:
+- (upcoming) **PBKDF2-HMAC-SHA256 hash** of your passcode (64 chars, 200 000 iterations) — used to verify the passcode at decode time; the high iteration count makes brute-force attacks expensive --> stay tuned!
+- **Algorithm index** (2 chars, zero-padded) — so the decoder knows how to decrypt
+- **Payload length** (10 chars, zero-padded) — so the decoder knows how many hex chars to read
+The header is written at **randomised pixel positions** chosen by a fixed-seed PRNG, so that it's not saved at the beginning of the image in a sequential block. The hex payload fills the remaining channels in order, skipping the header slots.
+On decryption, the same PRNG seed recreates the header positions, the header is read and the passcode is verified, and then the payload is decoded and decrypted automatically.
 
 ---
 
 ## A couple of things to keep in mind
-
 - **Always save the output as PNG.** JPEG compression will scramble the hidden data and you'll lose the message.
-- The image needs to be big enough to hold your message — roughly `3 × total pixels` characters max.
-- The password check uses MD5, which is fine for a casual use but not for anything serious.
+- The image needs to be big enough to hold your message — with 1-bit LSB, each hex character needs 4 channels. As a rule of thumb, usable message length is about `total_channels / 8` text characters (before header overhead), since text bytes are hex-encoded first.
 
 ---
-
-<!--## License
-
-MIT 
 
